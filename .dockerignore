@@ -1,0 +1,14 @@
+.git
+__pycache__
+*.pyc
+.env
+data/
+logs/
+checkpoints/
+outputs/
+.ipynb_checkpoints/
+.vscode/
+
+# Ignore local hugginface cache if present in the dir
+.cache/
+hf_cache/

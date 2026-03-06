@@ -1,0 +1,15 @@
+torch>=2.2.0
+transformers>=4.40.0
+datasets>=2.18.0
+trl>=0.8.2
+peft>=0.10.0
+accelerate>=0.29.0
+bitsandbytes>=0.43.1
+wandb
+tqdm
+scipy
+evaluate
+vllm>=0.4.0 # For fast inference during GRPO if needed
+ninja
+packaging
+wheel
