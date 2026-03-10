@@ -1,10 +1,11 @@
 import argparse
 import requests
+import re
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from trl import GRPOConfig, GRPOTrainer
 from .prompts import SYSTEM_PROMPT
-from .rewards import format_reward_func, correctness_reward_func
+from .rewards import format_reward_func, correctness_reward_func, llm_judge_reward_func
 
 # Custom Client for MLX Server on Mac
 class MLXClient:
@@ -14,19 +15,17 @@ class MLXClient:
         self.timeout = timeout
 
     def is_healthy(self):
-        # MLX server usually doesn't have /health, so we check /v1/models
         try:
             response = requests.get(f"{self.base_url}/models", timeout=5)
             return response.status_code == 200
         except:
-            return True # Fallback to True to avoid blocking the trainer
+            return True
 
     def __call__(self, prompts, **kwargs):
-        # Map TRL generation calls to MLX OpenAI-compatible API
         results = []
         for prompt in prompts:
             payload = {
-                "model": "default_model", # MLX server usually identifies as this
+                "model": "default_model",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": kwargs.get("temperature", 0.8),
                 "max_tokens": kwargs.get("max_new_tokens", 1024),
@@ -42,19 +41,19 @@ class MLXClient:
         return results
 
 def main():
-    parser = argparse.ArgumentParser(description="Train a thinking LLM using GRPO")
+    parser = argparse.ArgumentParser(description="Train a thinking LLM using GRPO with MLX Judge")
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-0.5B-Instruct", help="Base model to fine-tune")
     parser.add_argument("--dataset_name", type=str, default="openai/gsm8k", help="Dataset name to use")
     parser.add_argument("--dataset_config", type=str, default="main", help="Dataset configuration")
-    parser.add_argument("--output_dir", type=str, default="./outputs", help="Output directory for checkpoints")
+    parser.add_argument("--output_dir", type=str, default="./outputs_judge", help="Output directory")
     parser.add_argument("--max_steps", type=int, default=500, help="Maximum training steps")
     parser.add_argument("--learning_rate", type=float, default=2e-5, help="Learning rate")
     args = parser.parse_args()
 
     print(f"Loading Base Model: {args.model_name}")
-    # Load with PEFT/LoRA integration for efficient training on standard GPUs
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
+        torch_dtype="bfloat16",
         device_map="auto"
     )
     
@@ -65,7 +64,6 @@ def main():
     print(f"Loading and Formatting Dataset: {args.dataset_name}")
     dataset = load_dataset(args.dataset_name, args.dataset_config, split="train")
 
-    # Format specifically for conversational format expected by TRL Chat Templates
     def make_conversation(row):
         return {
             "prompt": [
@@ -75,78 +73,58 @@ def main():
         }
         
     def extract_solution(row):
-        # Specific extraction for gsm8k logic (extract content after ####)
         ans = row["answer"]
         if "####" in ans:
             ans = ans.split("####")[1].strip()
         return {"solution": ans}
 
     dataset = dataset.map(make_conversation).map(extract_solution)
-    # The expected keys by GRPOTrainer are usually specific based on config,
-    # mapping to proper naming convention. 'solution' is matched in rewards.py
     
-    print("Initializing GRPO Trainer with MLX Remote Client")
+    print("Initializing GRPO Trainer with LLM-as-a-Judge")
     training_args = GRPOConfig(
         output_dir=args.output_dir,
         learning_rate=args.learning_rate,
         max_steps=args.max_steps,
-        per_device_train_batch_size=4,   # Must be divisible by num_generations
+        per_device_train_batch_size=4,
         gradient_accumulation_steps=4,
-        max_completion_length=1024,      # Increased so it has room to output the </answer> tag
-        num_generations=4,               # K value for GRPO (samples per prompt)
+        max_completion_length=1024,
+        num_generations=4,
         logging_steps=1,
         save_steps=100,
-        temperature=0.7,                 # Needs slight temperature for exploring reasoning paths
-        report_to="none",                # Disable wandb since we have no API key
-        use_cpu=False,                   # Use GPU
-        bf16=True,                       # Use bf16 on 4090
-        use_vllm=False,                  # We are using our custom MLX client instead
+        temperature=0.7,
+        report_to="none",
+        use_cpu=False,
+        bf16=True,
+        use_vllm=False,
     )
 
-    # Instantiate our custom MLX Client
     mlx_client = MLXClient(model_id=args.model_name, base_url="http://m5:1234/v1")
 
     trainer = GRPOTrainer(
         model=model,
-        reward_funcs=[format_reward_func, correctness_reward_func],
+        reward_funcs=[format_reward_func, correctness_reward_func, llm_judge_reward_func],
         args=training_args,
         train_dataset=dataset,
         processing_class=tokenizer,
     )
     
-    # Bridge our MLX client to the trainer's expected vllm_generation interface
     class MockVLLMGen:
         def __init__(self, client, tokenizer):
             self.client = client
             self.tokenizer = tokenizer
         def sync_weights(self): pass
         def generate(self, prompts, images, num_generations, profiler=None):
-            # 1. Get text from Mac MLX
-            # Note: prompts here are likely already tokenized IDs based on the signature
-            # We need to decode them to send text to MLX, or modify MLXClient
             decoded_prompts = [self.tokenizer.decode(p, skip_special_tokens=True) for p in prompts]
-            
-            # MLXClient expects a list of text prompts
             mlx_results = self.client(decoded_prompts, temperature=0.8, max_new_tokens=1024)
-            
-            all_prompt_ids = []
-            all_completion_ids = []
-            all_logprobs = []
-            
+            all_prompt_ids, all_completion_ids, all_logprobs = [], [], []
             for i, p_ids in enumerate(prompts):
                 c_text = mlx_results[i][0]["generated_text"]
                 c_ids = self.tokenizer.encode(c_text, add_special_tokens=False)
-                
-                # GRPO expects (num_prompts * num_generations) results
-                # We need to return the full batch
                 all_prompt_ids.append(p_ids)
                 all_completion_ids.append(c_ids)
-                # Correct shape for logprobs: list of lists (for each token)
                 all_logprobs.append([[0.0] for _ in range(len(c_ids))])
-                
             return all_prompt_ids, all_completion_ids, all_logprobs, None, {}
 
-    # Inject our objects
     trainer.llm = mlx_client
     trainer.use_vllm = True 
     trainer._last_loaded_step = -1 
