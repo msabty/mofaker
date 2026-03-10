@@ -64,10 +64,8 @@ def main():
         report_to="none",                # Disable wandb since we have no API key
         use_cpu=False,                   # Use GPU
         bf16=True,                       # Use bf16 on 4090
-        use_vllm=True,                   # Enable vLLM
-        vllm_mode="local",               # Use local vLLM
-        vllm_device="cuda:0",            # Use the 4090
-        vllm_gpu_memory_utilization=0.3  # Leave room for the trainer
+        use_vllm=True,                   # Enable vLLM interface
+        vllm_server_base_url="http://m5:11434/v1" # Tailscale MagicDNS
     )
 
     trainer = GRPOTrainer(
