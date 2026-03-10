@@ -50,6 +50,15 @@ def main():
     # mapping to proper naming convention. 'solution' is matched in rewards.py
     
     print("Initializing GRPO Trainer")
+    # Patch TRL's vLLM client to ignore health check if it fails for MLX/Ollama
+    from trl.generation.vllm_client import VLLMClient
+    original_init = VLLMClient.__init__
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        # Force healthy status
+        self.is_healthy = lambda: True
+    VLLMClient.__init__ = patched_init
+
     training_args = GRPOConfig(
         output_dir=args.output_dir,
         learning_rate=args.learning_rate,
@@ -65,7 +74,7 @@ def main():
         use_cpu=False,                   # Use GPU
         bf16=True,                       # Use bf16 on 4090
         use_vllm=True,                   # Enable vLLM interface
-        vllm_server_base_url="http://m5:11434/v1" # Tailscale MagicDNS
+        vllm_server_base_url="http://m5:1234/v1" # Direct line to Mac MLX
     )
 
     trainer = GRPOTrainer(
