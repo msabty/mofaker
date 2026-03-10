@@ -120,7 +120,7 @@ def main():
             self.client = client
             self.tokenizer = tokenizer
         def sync_weights(self): pass
-        def generate(self, prompts, sampling_params, **kwargs):
+        def generate(self, prompts, sampling_params, *args, **kwargs):
             # 1. Get text from Mac MLX
             mlx_results = self.client(prompts, temperature=sampling_params.temperature, max_new_tokens=sampling_params.max_tokens)
             
