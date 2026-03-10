@@ -138,12 +138,11 @@ def main():
                 c_ids = self.tokenizer.encode(c_text, add_special_tokens=False)
                 
                 # GRPO expects (num_prompts * num_generations) results
-                # But here we are processing one prompt at a time or similar
                 # We need to return the full batch
                 all_prompt_ids.append(p_ids)
                 all_completion_ids.append(c_ids)
-                import torch
-                all_logprobs.append(torch.zeros(len(c_ids)))
+                # Correct shape for logprobs: list of lists (for each token)
+                all_logprobs.append([[0.0] for _ in range(len(c_ids))])
                 
             return all_prompt_ids, all_completion_ids, all_logprobs, None, {}
 
