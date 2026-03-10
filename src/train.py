@@ -120,25 +120,28 @@ def main():
             self.client = client
             self.tokenizer = tokenizer
         def sync_weights(self): pass
-        def generate(self, prompts, sampling_params, *args, **kwargs):
+        def generate(self, prompts, images, num_generations, profiler=None):
             # 1. Get text from Mac MLX
-            mlx_results = self.client(prompts, temperature=sampling_params.temperature, max_new_tokens=sampling_params.max_tokens)
+            # Note: prompts here are likely already tokenized IDs based on the signature
+            # We need to decode them to send text to MLX, or modify MLXClient
+            decoded_prompts = [self.tokenizer.decode(p, skip_special_tokens=True) for p in prompts]
             
-            # 2. Convert to what GRPOTrainer expects
+            # MLXClient expects a list of text prompts
+            mlx_results = self.client(decoded_prompts, temperature=0.8, max_new_tokens=1024)
+            
             all_prompt_ids = []
             all_completion_ids = []
             all_logprobs = []
             
-            for i, p_text in enumerate(prompts):
-                # Tokenize prompt and completion
-                p_ids = self.tokenizer.encode(p_text)
+            for i, p_ids in enumerate(prompts):
                 c_text = mlx_results[i][0]["generated_text"]
                 c_ids = self.tokenizer.encode(c_text, add_special_tokens=False)
                 
+                # GRPO expects (num_prompts * num_generations) results
+                # But here we are processing one prompt at a time or similar
+                # We need to return the full batch
                 all_prompt_ids.append(p_ids)
                 all_completion_ids.append(c_ids)
-                # We don't have true logprobs from MLX easily, so we provide dummy ones
-                # GRPOTrainer will use these for the KL penalty calculation
                 import torch
                 all_logprobs.append(torch.zeros(len(c_ids)))
                 
