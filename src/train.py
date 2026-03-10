@@ -61,7 +61,10 @@ def main():
         logging_steps=10,
         save_steps=100,
         temperature=0.7,                 # Needs slight temperature for exploring reasoning paths
-        report_to="none"                 # Disable wandb since we have no API key
+        report_to="none",                # Disable wandb since we have no API key
+        use_cpu=True,                    # Force CPU execution since Docker has no GPU on Mac
+        bf16=False,                      # Mac CPU emulation does not support bfloat16
+        fp16=False
     )
 
     trainer = GRPOTrainer(

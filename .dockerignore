@@ -12,3 +12,8 @@ outputs/
 # Ignore local hugginface cache if present in the dir
 .cache/
 hf_cache/
+
+# Virtual Environments
+.venv/
+venv/
+env/
