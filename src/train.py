@@ -64,7 +64,9 @@ def main():
         report_to="none",                # Disable wandb since we have no API key
         use_cpu=False,                   # Use GPU
         bf16=True,                       # Use bf16 on 4090
-        use_vllm=False,                  # Disable vLLM for now
+        use_vllm=True,                   # Enable vLLM interface (Ollama is compatible)
+        vllm_device="remote",            # Use the Mac
+        vllm_remote_address="http://100.118.255.63:11434/v1" # Mac Tailscale IP
     )
 
     trainer = GRPOTrainer(
