@@ -65,6 +65,7 @@ def main():
         use_cpu=False,                   # Use GPU
         bf16=True,                       # Use bf16 on 4090
         use_vllm=True,                   # Enable vLLM
+        vllm_mode="local",               # Use local vLLM
         vllm_device="cuda:0",            # Use the 4090
         vllm_gpu_memory_utilization=0.3  # Leave room for the trainer
     )
