@@ -64,8 +64,9 @@ def main():
         report_to="none",                # Disable wandb since we have no API key
         use_cpu=False,                   # Use GPU
         bf16=True,                       # Use bf16 on 4090
-        vllm_device="remote",            # Use remote vLLM for generation
-        vllm_remote_address="http://localhost:8000/v1" # Local to the wood machine
+        use_vllm=True,                   # Enable vLLM
+        vllm_device="cuda:0",            # Use the 4090
+        vllm_gpu_memory_utilization=0.2  # Match the server config
     )
 
     trainer = GRPOTrainer(
