@@ -64,9 +64,7 @@ def main():
         report_to="none",                # Disable wandb since we have no API key
         use_cpu=False,                   # Use GPU
         bf16=True,                       # Use bf16 on 4090
-        use_vllm=True,                   # Enable vLLM
-        vllm_device="cuda:0",            # Use the 4090
-        vllm_gpu_memory_utilization=0.2  # Match the server config
+        use_vllm=False,                  # Disable vLLM for now
     )
 
     trainer = GRPOTrainer(
