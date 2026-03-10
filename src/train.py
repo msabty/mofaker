@@ -114,15 +114,41 @@ def main():
         processing_class=tokenizer,
     )
     
-    # Inject our client into the trainer
-    trainer.llm = mlx_client
-    trainer.use_vllm = True # Tell trainer to use the .llm object for generation
-    trainer._last_loaded_step = -1 # Fix missing attribute from skipped vLLM init
-    
-    # Mock vllm_generation object
+    # Bridge our MLX client to the trainer's expected vllm_generation interface
     class MockVLLMGen:
+        def __init__(self, client, tokenizer):
+            self.client = client
+            self.tokenizer = tokenizer
         def sync_weights(self): pass
-    trainer.vllm_generation = MockVLLMGen()
+        def generate(self, prompts, sampling_params, **kwargs):
+            # 1. Get text from Mac MLX
+            mlx_results = self.client(prompts, temperature=sampling_params.temperature, max_new_tokens=sampling_params.max_tokens)
+            
+            # 2. Convert to what GRPOTrainer expects
+            all_prompt_ids = []
+            all_completion_ids = []
+            all_logprobs = []
+            
+            for i, p_text in enumerate(prompts):
+                # Tokenize prompt and completion
+                p_ids = self.tokenizer.encode(p_text)
+                c_text = mlx_results[i][0]["generated_text"]
+                c_ids = self.tokenizer.encode(c_text, add_special_tokens=False)
+                
+                all_prompt_ids.append(p_ids)
+                all_completion_ids.append(c_ids)
+                # We don't have true logprobs from MLX easily, so we provide dummy ones
+                # GRPOTrainer will use these for the KL penalty calculation
+                import torch
+                all_logprobs.append(torch.zeros(len(c_ids)))
+                
+            return all_prompt_ids, all_completion_ids, all_logprobs, None, {}
+
+    # Inject our objects
+    trainer.llm = mlx_client
+    trainer.use_vllm = True 
+    trainer._last_loaded_step = -1 
+    trainer.vllm_generation = MockVLLMGen(mlx_client, tokenizer)
 
     print("Starting Training Loop...")
     trainer.train()
