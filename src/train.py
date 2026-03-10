@@ -118,6 +118,11 @@ def main():
     trainer.llm = mlx_client
     trainer.use_vllm = True # Tell trainer to use the .llm object for generation
     trainer._last_loaded_step = -1 # Fix missing attribute from skipped vLLM init
+    
+    # Mock vllm_generation object
+    class MockVLLMGen:
+        def sync_weights(self): pass
+    trainer.vllm_generation = MockVLLMGen()
 
     print("Starting Training Loop...")
     trainer.train()
