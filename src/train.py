@@ -54,7 +54,7 @@ def main():
         output_dir=args.output_dir,
         learning_rate=args.learning_rate,
         max_steps=args.max_steps,
-        per_device_train_batch_size=1,   # Keep small to fit in typical VRAM with GRPO completions
+        per_device_train_batch_size=4,   # Must be divisible by num_generations
         gradient_accumulation_steps=4,
         max_completion_length=1024,      # Increased so it has room to output the </answer> tag
         num_generations=4,               # K value for GRPO (samples per prompt)
