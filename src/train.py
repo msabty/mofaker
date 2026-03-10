@@ -58,13 +58,14 @@ def main():
         gradient_accumulation_steps=4,
         max_completion_length=1024,      # Increased so it has room to output the </answer> tag
         num_generations=4,               # K value for GRPO (samples per prompt)
-        logging_steps=10,
+        logging_steps=1,
         save_steps=100,
         temperature=0.7,                 # Needs slight temperature for exploring reasoning paths
         report_to="none",                # Disable wandb since we have no API key
-        use_cpu=True,                    # Force CPU execution since Docker has no GPU on Mac
-        bf16=False,                      # Mac CPU emulation does not support bfloat16
-        fp16=False
+        use_cpu=False,                   # Use GPU
+        bf16=True,                       # Use bf16 on 4090
+        vllm_device="remote",            # Use remote vLLM for generation
+        vllm_remote_address="http://localhost:8000/v1" # Local to the wood machine
     )
 
     trainer = GRPOTrainer(
