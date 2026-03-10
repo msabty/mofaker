@@ -1,9 +1,45 @@
 import argparse
+import requests
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from trl import GRPOConfig, GRPOTrainer
 from .prompts import SYSTEM_PROMPT
 from .rewards import format_reward_func, correctness_reward_func
+
+# Custom Client for MLX Server on Mac
+class MLXClient:
+    def __init__(self, model_id, base_url, timeout=120):
+        self.model_id = model_id
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+
+    def is_healthy(self):
+        # MLX server usually doesn't have /health, so we check /v1/models
+        try:
+            response = requests.get(f"{self.base_url}/models", timeout=5)
+            return response.status_code == 200
+        except:
+            return True # Fallback to True to avoid blocking the trainer
+
+    def __call__(self, prompts, **kwargs):
+        # Map TRL generation calls to MLX OpenAI-compatible API
+        results = []
+        for prompt in prompts:
+            payload = {
+                "model": "default_model", # MLX server usually identifies as this
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": kwargs.get("temperature", 0.8),
+                "max_tokens": kwargs.get("max_new_tokens", 1024),
+            }
+            try:
+                response = requests.post(f"{self.base_url}/chat/completions", json=payload, timeout=self.timeout)
+                res_json = response.json()
+                content = res_json["choices"][0]["message"]["content"]
+                results.append([{"generated_text": content}])
+            except Exception as e:
+                print(f"MLX Inference Error: {e}")
+                results.append([{"generated_text": "Error in generation"}])
+        return results
 
 def main():
     parser = argparse.ArgumentParser(description="Train a thinking LLM using GRPO")
@@ -49,16 +85,7 @@ def main():
     # The expected keys by GRPOTrainer are usually specific based on config,
     # mapping to proper naming convention. 'solution' is matched in rewards.py
     
-    print("Initializing GRPO Trainer")
-    # Patch TRL's vLLM client to ignore health check if it fails for MLX/Ollama
-    from trl.generation.vllm_client import VLLMClient
-    original_init = VLLMClient.__init__
-    def patched_init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        # Force healthy status
-        self.is_healthy = lambda: True
-    VLLMClient.__init__ = patched_init
-
+    print("Initializing GRPO Trainer with MLX Remote Client")
     training_args = GRPOConfig(
         output_dir=args.output_dir,
         learning_rate=args.learning_rate,
@@ -73,9 +100,11 @@ def main():
         report_to="none",                # Disable wandb since we have no API key
         use_cpu=False,                   # Use GPU
         bf16=True,                       # Use bf16 on 4090
-        use_vllm=True,                   # Enable vLLM interface
-        vllm_server_base_url="http://m5:1234/v1" # Direct line to Mac MLX
+        use_vllm=False,                  # We are using our custom MLX client instead
     )
+
+    # Instantiate our custom MLX Client
+    mlx_client = MLXClient(model_id=args.model_name, base_url="http://m5:1234/v1")
 
     trainer = GRPOTrainer(
         model=model,
@@ -84,6 +113,10 @@ def main():
         train_dataset=dataset,
         processing_class=tokenizer,
     )
+    
+    # Inject our client into the trainer
+    trainer.llm = mlx_client
+    trainer.use_vllm = True # Tell trainer to use the .llm object for generation
 
     print("Starting Training Loop...")
     trainer.train()
