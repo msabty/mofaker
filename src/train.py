@@ -117,6 +117,7 @@ def main():
     # Inject our client into the trainer
     trainer.llm = mlx_client
     trainer.use_vllm = True # Tell trainer to use the .llm object for generation
+    trainer._last_loaded_step = -1 # Fix missing attribute from skipped vLLM init
 
     print("Starting Training Loop...")
     trainer.train()
